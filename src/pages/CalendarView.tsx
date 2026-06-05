@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Button, Modal, Form, Input, Select, DatePicker, Card, Row, Col, Badge, Tag, message } from 'antd'
-import { PlusOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
+import { Button, Modal, Form, Input, Select, DatePicker, Card, Row, Col, Badge, Tag, message, Alert } from 'antd'
+import { PlusOutlined, ExclamationCircleOutlined, WarningOutlined } from '@ant-design/icons'
 import dayjs, { Dayjs } from 'dayjs'
 import type { Dayjs as DayjsType } from 'dayjs'
+import { safeApi, hasDatabase } from '../utils/safeApi'
 
 interface Event {
   id: number
@@ -38,7 +39,7 @@ function CalendarView() {
     try {
       const startDate = currentMonth.startOf('month').format('YYYY-MM-DD')
       const endDate = currentMonth.endOf('month').format('YYYY-MM-DD')
-      const data = await window.api.events.list({ startDate, endDate })
+      const data = await safeApi.events.list({ startDate, endDate })
       const eventData = data || []
       setEvents(eventData)
       checkConflicts(eventData)
@@ -89,7 +90,7 @@ function CalendarView() {
         location: values.location || '',
         status: 'planned'
       }
-      await window.api.events.create(eventData)
+      await safeApi.events.create(eventData)
       message.success('创建成功')
       setIsModalOpen(false)
       form.resetFields()
@@ -138,7 +139,7 @@ function CalendarView() {
         end_time: newEnd.format('YYYY-MM-DD HH:mm')
       }
 
-      await window.api.events.update(draggedEvent.id, updated)
+      await safeApi.events.update(draggedEvent.id, updated)
       message.success('改期成功')
       loadEvents()
     } catch (err) {
@@ -180,10 +181,19 @@ function CalendarView() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <h1 className="page-title">日历总览</h1>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsModalOpen(true)}>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsModalOpen(true)} disabled={!hasDatabase()}>
           新建排期
         </Button>
       </div>
+
+      {!hasDatabase() && (
+        <Alert
+          message={<span><WarningOutlined /> 当前未在桌面客户端环境中运行，数据持久化功能不可用</span>}
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+      )}
 
       {conflicts.length > 0 && (
         <div className="conflict-warning">
