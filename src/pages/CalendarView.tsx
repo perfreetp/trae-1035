@@ -35,20 +35,31 @@ function CalendarView() {
   const [form] = Form.useForm()
 
   const loadEvents = async () => {
-    const startDate = currentMonth.startOf('month').format('YYYY-MM-DD')
-    const endDate = currentMonth.endOf('month').format('YYYY-MM-DD')
-    const data = await window.api.events.list({ startDate, endDate })
-    setEvents(data)
-    checkConflicts(data)
+    try {
+      const startDate = currentMonth.startOf('month').format('YYYY-MM-DD')
+      const endDate = currentMonth.endOf('month').format('YYYY-MM-DD')
+      const data = await window.api.events.list({ startDate, endDate })
+      const eventData = data || []
+      setEvents(eventData)
+      checkConflicts(eventData)
+    } catch (err) {
+      console.error('加载排期数据失败:', err)
+      setEvents([])
+      setConflicts([])
+    }
   }
 
   const checkConflicts = (eventList: Event[]) => {
+    if (!eventList || eventList.length === 0) {
+      setConflicts([])
+      return
+    }
     const conflictList: Event[] = []
     for (let i = 0; i < eventList.length; i++) {
       for (let j = i + 1; j < eventList.length; j++) {
         const e1 = eventList[i]
         const e2 = eventList[j]
-        if (e1.location === e2.location && e1.location) {
+        if (e1 && e2 && e1.location === e2.location && e1.location) {
           const e1Start = dayjs(e1.start_time)
           const e1End = dayjs(e1.end_time)
           const e2Start = dayjs(e2.start_time)
@@ -68,20 +79,25 @@ function CalendarView() {
   }, [currentMonth])
 
   const handleSubmit = async (values: any) => {
-    const eventData = {
-      type: values.type,
-      title: values.title,
-      description: values.description || '',
-      start_time: values.timeRange[0].format('YYYY-MM-DD HH:mm'),
-      end_time: values.timeRange[1].format('YYYY-MM-DD HH:mm'),
-      location: values.location || '',
-      status: 'planned'
+    try {
+      const eventData = {
+        type: values.type,
+        title: values.title,
+        description: values.description || '',
+        start_time: values.timeRange[0].format('YYYY-MM-DD HH:mm'),
+        end_time: values.timeRange[1].format('YYYY-MM-DD HH:mm'),
+        location: values.location || '',
+        status: 'planned'
+      }
+      await window.api.events.create(eventData)
+      message.success('创建成功')
+      setIsModalOpen(false)
+      form.resetFields()
+      loadEvents()
+    } catch (err) {
+      console.error('创建排期失败:', err)
+      message.error('创建失败，请重试')
     }
-    await window.api.events.create(eventData)
-    message.success('创建成功')
-    setIsModalOpen(false)
-    form.resetFields()
-    loadEvents()
   }
 
   const handleDragStart = (e: React.DragEvent, event: Event) => {
@@ -108,23 +124,29 @@ function CalendarView() {
     e.preventDefault()
     if (!draggedEvent) return
 
-    const oldStart = dayjs(draggedEvent.start_time)
-    const oldEnd = dayjs(draggedEvent.end_time)
-    const duration = oldEnd.diff(oldStart, 'minute')
-    const newDate = dayjs(dateStr)
-    const newStart = newDate.hour(oldStart.hour()).minute(oldStart.minute())
-    const newEnd = newStart.add(duration, 'minute')
+    try {
+      const oldStart = dayjs(draggedEvent.start_time)
+      const oldEnd = dayjs(draggedEvent.end_time)
+      const duration = oldEnd.diff(oldStart, 'minute')
+      const newDate = dayjs(dateStr)
+      const newStart = newDate.hour(oldStart.hour()).minute(oldStart.minute())
+      const newEnd = newStart.add(duration, 'minute')
 
-    const updated = {
-      ...draggedEvent,
-      start_time: newStart.format('YYYY-MM-DD HH:mm'),
-      end_time: newEnd.format('YYYY-MM-DD HH:mm')
+      const updated = {
+        ...draggedEvent,
+        start_time: newStart.format('YYYY-MM-DD HH:mm'),
+        end_time: newEnd.format('YYYY-MM-DD HH:mm')
+      }
+
+      await window.api.events.update(draggedEvent.id, updated)
+      message.success('改期成功')
+      loadEvents()
+    } catch (err) {
+      console.error('改期失败:', err)
+      message.error('改期失败，请重试')
+    } finally {
+      setDragOverDate(null)
     }
-
-    await window.api.events.update(draggedEvent.id, updated)
-    message.success('改期成功')
-    loadEvents()
-    setDragOverDate(null)
   }
 
   const renderCalendarDays = () => {
@@ -142,14 +164,16 @@ function CalendarView() {
   const weekDays = ['日', '一', '二', '三', '四', '五', '六']
 
   const getEventsForDate = (date: DayjsType) => {
-    return events.filter(e => dayjs(e.start_time).isSame(date, 'day'))
+    if (!events || events.length === 0) return []
+    return events.filter(e => e && dayjs(e.start_time).isSame(date, 'day'))
   }
 
+  const safeEvents = events || []
   const stats = {
-    performance: events.filter(e => e.type === 'performance').length,
-    rehearsal: events.filter(e => e.type === 'rehearsal').length,
-    setup: events.filter(e => e.type === 'setup').length,
-    teardown: events.filter(e => e.type === 'teardown').length
+    performance: safeEvents.filter(e => e && e.type === 'performance').length,
+    rehearsal: safeEvents.filter(e => e && e.type === 'rehearsal').length,
+    setup: safeEvents.filter(e => e && e.type === 'setup').length,
+    teardown: safeEvents.filter(e => e && e.type === 'teardown').length
   }
 
   return (

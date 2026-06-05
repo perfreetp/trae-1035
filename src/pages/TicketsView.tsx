@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { Button, Card, Table, Modal, Form, Input, Select, InputNumber, Statistic, Row, Col, message, Space, Tag, DatePicker } from 'antd'
-import { PlusOutlined, DollarOutlined, UserOutlined, GiftOutlined } from '@ant-design/icons'
+import { Button, Card, Table, Modal, Form, Input, Select, InputNumber, Statistic, Row, Col, message, Space, Tag, Divider } from 'antd'
+import { PlusOutlined, DollarOutlined, UserOutlined, GiftOutlined, TeamOutlined, PercentageOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 
 interface Event {
@@ -28,31 +28,75 @@ interface TicketSummary {
   total_revenue: number
 }
 
+interface Attendance {
+  id: number
+  event_id: number
+  total_seats: number
+  tickets_sold: number
+  complimentary_tickets: number
+  people_entered: number
+  updated_at: string
+}
+
 function TicketsView() {
   const [events, setEvents] = useState<Event[]>([])
   const [selectedEvent, setSelectedEvent] = useState<number | null>(null)
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [summary, setSummary] = useState<TicketSummary[]>([])
-  const [modalOpen, setModalOpen] = useState(false)
-  const [form] = Form.useForm()
+  const [attendance, setAttendance] = useState<Attendance | null>(null)
+  const [ticketModalOpen, setTicketModalOpen] = useState(false)
+  const [attendanceModalOpen, setAttendanceModalOpen] = useState(false)
+  const [ticketForm] = Form.useForm()
+  const [attendanceForm] = Form.useForm()
 
   const loadEvents = async () => {
-    const data = await window.api.events.list({
-      startDate: dayjs().subtract(1, 'year').format('YYYY-MM-DD'),
-      endDate: dayjs().add(1, 'year').format('YYYY-MM-DD')
-    })
-    setEvents(data.filter((e: Event) => e.type === 'performance'))
-    if (data.length > 0 && !selectedEvent) {
-      setSelectedEvent(data[0].id)
+    try {
+      const data = await window.api.events.list({
+        startDate: dayjs().subtract(1, 'year').format('YYYY-MM-DD'),
+        endDate: dayjs().add(1, 'year').format('YYYY-MM-DD')
+      })
+      const performances = data.filter((e: Event) => e.type === 'performance')
+      setEvents(performances)
+      if (performances.length > 0 && !selectedEvent) {
+        setSelectedEvent(performances[0].id)
+      }
+    } catch (err) {
+      console.error('加载场次失败:', err)
+      message.error('加载场次数据失败')
     }
   }
 
   const loadTickets = async () => {
     if (!selectedEvent) return
-    const ticketData = await window.api.tickets.list(selectedEvent)
-    setTickets(ticketData)
-    const summaryData = await window.api.tickets.summary(selectedEvent)
-    setSummary(summaryData)
+    try {
+      const ticketData = await window.api.tickets.list(selectedEvent)
+      setTickets(ticketData)
+      const summaryData = await window.api.tickets.summary(selectedEvent)
+      setSummary(summaryData)
+    } catch (err) {
+      console.error('加载票务失败:', err)
+      setTickets([])
+      setSummary([])
+    }
+  }
+
+  const loadAttendance = async () => {
+    if (!selectedEvent) return
+    try {
+      const data = await window.api.attendance.get(selectedEvent)
+      setAttendance(data || null)
+      if (data) {
+        attendanceForm.setFieldsValue({
+          total_seats: data.total_seats,
+          tickets_sold: data.tickets_sold,
+          complimentary_tickets: data.complimentary_tickets,
+          people_entered: data.people_entered
+        })
+      }
+    } catch (err) {
+      console.error('加载入场统计失败:', err)
+      setAttendance(null)
+    }
   }
 
   useEffect(() => {
@@ -61,24 +105,49 @@ function TicketsView() {
 
   useEffect(() => {
     loadTickets()
+    loadAttendance()
   }, [selectedEvent])
 
-  const handleSubmit = async (values: any) => {
+  const handleTicketSubmit = async (values: any) => {
     if (!selectedEvent) return
     const totalAmount = values.quantity * values.price
-    await window.api.tickets.create({
-      event_id: selectedEvent,
-      type: values.type,
-      quantity: values.quantity,
-      price: values.price,
-      total_amount: values.type === 'complimentary' ? 0 : totalAmount,
-      buyer: values.buyer || '',
-      note: values.note || ''
-    })
-    message.success('录入成功')
-    setModalOpen(false)
-    form.resetFields()
-    loadTickets()
+    try {
+      await window.api.tickets.create({
+        event_id: selectedEvent,
+        type: values.type,
+        quantity: values.quantity,
+        price: values.price,
+        total_amount: values.type === 'complimentary' ? 0 : totalAmount,
+        buyer: values.buyer || '',
+        note: values.note || ''
+      })
+      message.success('录入成功')
+      setTicketModalOpen(false)
+      ticketForm.resetFields()
+      loadTickets()
+    } catch (err) {
+      console.error('录入票务失败:', err)
+      message.error('录入失败，请重试')
+    }
+  }
+
+  const handleAttendanceSubmit = async (values: any) => {
+    if (!selectedEvent) return
+    try {
+      const data = {
+        total_seats: values.total_seats || 0,
+        tickets_sold: values.tickets_sold || 0,
+        complimentary_tickets: values.complimentary_tickets || 0,
+        people_entered: values.people_entered || 0
+      }
+      await window.api.attendance.save(selectedEvent, data)
+      message.success('入场统计已保存')
+      setAttendanceModalOpen(false)
+      loadAttendance()
+    } catch (err) {
+      console.error('保存入场统计失败:', err)
+      message.error('保存失败，请重试')
+    }
   }
 
   const columns = [
@@ -86,7 +155,7 @@ function TicketsView() {
       title: '时间',
       dataIndex: 'created_at',
       key: 'created_at',
-      render: (t: string) => dayjs(t).format('YYYY-MM-DD HH:mm'),
+      render: (t: string) => t ? dayjs(t).format('YYYY-MM-DD HH:mm') : '-',
       width: 160
     },
     {
@@ -108,19 +177,30 @@ function TicketsView() {
           complimentary: '赠票',
           group: '团体票'
         }
-        return <Tag color={colorMap[t]}>{labelMap[t]}</Tag>
+        return <Tag color={colorMap[t] || 'default'}>{labelMap[t] || t}</Tag>
       }
     },
     { title: '数量', dataIndex: 'quantity', key: 'quantity', width: 80 },
-    { title: '单价', dataIndex: 'price', key: 'price', render: (p: number) => `¥${p.toFixed(2)}` },
-    { title: '金额', dataIndex: 'total_amount', key: 'total_amount', render: (a: number) => `¥${a.toFixed(2)}` },
+    { title: '单价', dataIndex: 'price', key: 'price', render: (p: number) => `¥${(p || 0).toFixed(2)}` },
+    { title: '金额', dataIndex: 'total_amount', key: 'total_amount', render: (a: number) => `¥${(a || 0).toFixed(2)}` },
     { title: '购票人', dataIndex: 'buyer', key: 'buyer' },
     { title: '备注', dataIndex: 'note', key: 'note' }
   ]
 
-  const totalRevenue = summary.reduce((sum, s) => sum + s.total_revenue, 0)
-  const totalTickets = summary.reduce((sum, s) => sum + s.total_quantity, 0)
-  const complimentaryTickets = summary.find(s => s.type === 'complimentary')?.total_quantity || 0
+  const totalRevenue = summary ? summary.reduce((sum, s) => sum + (s.total_revenue || 0), 0) : 0
+  const totalTickets = summary ? summary.reduce((sum, s) => sum + (s.total_quantity || 0), 0) : 0
+  const complimentaryTickets = summary?.find(s => s.type === 'complimentary')?.total_quantity || 0
+  const paidTickets = totalTickets - complimentaryTickets
+
+  let avgPrice = 0
+  if (paidTickets > 0 && totalRevenue > 0) {
+    avgPrice = totalRevenue / paidTickets
+  }
+
+  const totalSeats = attendance?.total_seats || 0
+  const peopleEntered = attendance?.people_entered || 0
+  const attendanceRate = totalSeats > 0 ? (peopleEntered / totalSeats) * 100 : 0
+  const notEntered = Math.max(0, totalSeats - peopleEntered)
 
   return (
     <div>
@@ -132,6 +212,7 @@ function TicketsView() {
             placeholder="选择演出场次"
             value={selectedEvent}
             onChange={setSelectedEvent}
+            allowClear
           >
             {events.map(e => (
               <Select.Option key={e.id} value={e.id}>
@@ -140,9 +221,24 @@ function TicketsView() {
             ))}
           </Select>
           <Button
+            icon={<TeamOutlined />}
+            onClick={() => {
+              attendanceForm.setFieldsValue({
+                total_seats: attendance?.total_seats || 0,
+                tickets_sold: attendance?.tickets_sold || 0,
+                complimentary_tickets: attendance?.complimentary_tickets || 0,
+                people_entered: attendance?.people_entered || 0
+              })
+              setAttendanceModalOpen(true)
+            }}
+            disabled={!selectedEvent}
+          >
+            入场统计
+          </Button>
+          <Button
             type="primary"
             icon={<PlusOutlined />}
-            onClick={() => setModalOpen(true)}
+            onClick={() => setTicketModalOpen(true)}
             disabled={!selectedEvent}
           >
             录入票务
@@ -151,7 +247,7 @@ function TicketsView() {
       </div>
 
       <Row gutter={16} style={{ marginBottom: 20 }}>
-        <Col span={6}>
+        <Col span={4}>
           <Card>
             <Statistic
               title="总售票数"
@@ -161,7 +257,7 @@ function TicketsView() {
             />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col span={4}>
           <Card>
             <Statistic
               title="票房收入"
@@ -173,7 +269,7 @@ function TicketsView() {
             />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col span={4}>
           <Card>
             <Statistic
               title="赠票数量"
@@ -184,22 +280,76 @@ function TicketsView() {
             />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col span={4}>
           <Card>
             <Statistic
               title="平均票价"
-              value={totalTickets > 0 ? totalRevenue / (totalTickets - complimentaryTickets) : 0}
+              value={avgPrice}
               precision={2}
               prefix="¥"
               suffix="/张"
             />
           </Card>
         </Col>
+        <Col span={4}>
+          <Card>
+            <Statistic
+              title="已入场"
+              value={peopleEntered}
+              prefix={<TeamOutlined />}
+              suffix="人"
+              valueStyle={{ color: '#1890ff' }}
+            />
+          </Card>
+        </Col>
+        <Col span={4}>
+          <Card>
+            <Statistic
+              title="入场率"
+              value={attendanceRate}
+              precision={1}
+              prefix={<PercentageOutlined />}
+              suffix="%"
+              valueStyle={{ color: attendanceRate >= 80 ? '#52c41a' : attendanceRate >= 50 ? '#faad14' : '#ff4d4f' }}
+            />
+          </Card>
+        </Col>
       </Row>
+
+      <Card title="入场统计详情" style={{ marginBottom: 20 }}>
+        <Row gutter={16}>
+          <Col span={6}>
+            <div style={{ textAlign: 'center', padding: 16, background: '#e6f7ff', borderRadius: 8 }}>
+              <div style={{ fontSize: 14, color: '#8c8c8c' }}>总座位数</div>
+              <div style={{ fontSize: 28, fontWeight: 700, margin: '8px 0', color: '#1890ff' }}>{totalSeats}</div>
+            </div>
+          </Col>
+          <Col span={6}>
+            <div style={{ textAlign: 'center', padding: 16, background: '#f6ffed', borderRadius: 8 }}>
+              <div style={{ fontSize: 14, color: '#8c8c8c' }}>已入场</div>
+              <div style={{ fontSize: 28, fontWeight: 700, margin: '8px 0', color: '#52c41a' }}>{peopleEntered}</div>
+            </div>
+          </Col>
+          <Col span={6}>
+            <div style={{ textAlign: 'center', padding: 16, background: '#fff2e8', borderRadius: 8 }}>
+              <div style={{ fontSize: 14, color: '#8c8c8c' }}>未入场</div>
+              <div style={{ fontSize: 28, fontWeight: 700, margin: '8px 0', color: '#fa8c16' }}>{notEntered}</div>
+            </div>
+          </Col>
+          <Col span={6}>
+            <div style={{ textAlign: 'center', padding: 16, background: '#f9f0ff', borderRadius: 8 }}>
+              <div style={{ fontSize: 14, color: '#8c8c8c' }}>座位使用率</div>
+              <div style={{ fontSize: 28, fontWeight: 700, margin: '8px 0', color: '#722ed1' }}>
+                {totalSeats > 0 ? ((peopleEntered / totalSeats) * 100).toFixed(1) : 0}%
+              </div>
+            </div>
+          </Col>
+        </Row>
+      </Card>
 
       <Card title="票种统计" style={{ marginBottom: 20 }}>
         <Row gutter={16}>
-          {summary.map(s => {
+          {summary && summary.length > 0 ? summary.map(s => {
             const labelMap: Record<string, string> = {
               normal: '普通票',
               vip: 'VIP票',
@@ -210,13 +360,17 @@ function TicketsView() {
             return (
               <Col span={6} key={s.type}>
                 <div style={{ textAlign: 'center', padding: 16, background: '#f5f5f5', borderRadius: 8 }}>
-                  <div style={{ fontSize: 14, color: '#8c8c8c' }}>{labelMap[s.type]}</div>
-                  <div style={{ fontSize: 24, fontWeight: 700, margin: '8px 0' }}>{s.total_quantity} 张</div>
-                  <div style={{ color: '#52c41a', fontWeight: 600 }}>¥{s.total_revenue.toFixed(2)}</div>
+                  <div style={{ fontSize: 14, color: '#8c8c8c' }}>{labelMap[s.type] || s.type}</div>
+                  <div style={{ fontSize: 24, fontWeight: 700, margin: '8px 0' }}>{s.total_quantity || 0} 张</div>
+                  <div style={{ color: '#52c41a', fontWeight: 600 }}>¥{(s.total_revenue || 0).toFixed(2)}</div>
                 </div>
               </Col>
             )
-          })}
+          }) : (
+            <Col span={24}>
+              <div style={{ textAlign: 'center', padding: 40, color: '#8c8c8c' }}>暂无票务数据</div>
+            </Col>
+          )}
         </Row>
       </Card>
 
@@ -226,17 +380,18 @@ function TicketsView() {
           columns={columns}
           rowKey="id"
           pagination={{ pageSize: 10 }}
+          locale={{ emptyText: '暂无售票记录' }}
         />
       </Card>
 
       <Modal
         title="录入票务"
-        open={modalOpen}
-        onCancel={() => setModalOpen(false)}
+        open={ticketModalOpen}
+        onCancel={() => setTicketModalOpen(false)}
         footer={null}
         width={500}
       >
-        <Form form={form} layout="vertical" onFinish={handleSubmit}>
+        <Form form={ticketForm} layout="vertical" onFinish={handleTicketSubmit}>
           <Form.Item name="type" label="票种" rules={[{ required: true }]}>
             <Select>
               <Select.Option value="normal">普通票</Select.Option>
@@ -259,8 +414,43 @@ function TicketsView() {
             <Input.TextArea rows={3} />
           </Form.Item>
           <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
-            <Button onClick={() => setModalOpen(false)} style={{ marginRight: 8 }}>取消</Button>
+            <Button onClick={() => setTicketModalOpen(false)} style={{ marginRight: 8 }}>取消</Button>
             <Button type="primary" htmlType="submit">录入</Button>
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="观众入场统计"
+        open={attendanceModalOpen}
+        onCancel={() => setAttendanceModalOpen(false)}
+        footer={null}
+        width={500}
+      >
+        <Form form={attendanceForm} layout="vertical" onFinish={handleAttendanceSubmit}>
+          <Form.Item name="total_seats" label="总座位数" initialValue={0}>
+            <InputNumber min={0} style={{ width: '100%' }} placeholder="剧场总座位数" />
+          </Form.Item>
+          <Form.Item name="tickets_sold" label="售出票数（含赠票）" initialValue={0}>
+            <InputNumber min={0} style={{ width: '100%' }} placeholder="总共售出（含赠票）的票数" />
+          </Form.Item>
+          <Form.Item name="complimentary_tickets" label="其中赠票数" initialValue={0}>
+            <InputNumber min={0} style={{ width: '100%' }} placeholder="赠票的数量" />
+          </Form.Item>
+          <Divider />
+          <Form.Item name="people_entered" label="实际入场人数" initialValue={0}>
+            <InputNumber min={0} style={{ width: '100%' }} placeholder="实际检票入场的观众人数" />
+          </Form.Item>
+          <div style={{ padding: 12, background: '#f5f5f5', borderRadius: 4, marginBottom: 16 }}>
+            <div style={{ fontSize: 13, color: '#8c8c8c', marginBottom: 4 }}>实时计算：</div>
+            <div>
+              入场率：<strong>{totalSeats > 0 ? ((peopleEntered / totalSeats) * 100).toFixed(1) : 0}%</strong>
+              ，未入场：<strong>{notEntered}</strong> 人
+            </div>
+          </div>
+          <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
+            <Button onClick={() => setAttendanceModalOpen(false)} style={{ marginRight: 8 }}>取消</Button>
+            <Button type="primary" htmlType="submit">保存</Button>
           </Form.Item>
         </Form>
       </Modal>

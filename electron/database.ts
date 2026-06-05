@@ -150,6 +150,17 @@ export function initDatabase() {
       note TEXT,
       FOREIGN KEY (event_id) REFERENCES events(id)
     );
+
+    CREATE TABLE IF NOT EXISTS attendance (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_id INTEGER NOT NULL UNIQUE,
+      total_seats INTEGER DEFAULT 0,
+      tickets_sold INTEGER DEFAULT 0,
+      complimentary_tickets INTEGER DEFAULT 0,
+      people_entered INTEGER DEFAULT 0,
+      updated_at TEXT,
+      FOREIGN KEY (event_id) REFERENCES events(id)
+    );
   `)
 
   const personnelCount = database.prepare('SELECT COUNT(*) as count FROM personnel').get() as { count: number }
@@ -228,5 +239,31 @@ export function initDatabase() {
     ]
     
     sampleTodos.forEach(t => insertTodo.run(...t))
+  }
+
+  const eventsCount = database.prepare('SELECT COUNT(*) as count FROM events').get() as { count: number }
+  if (eventsCount.count === 0) {
+    const insertEvent = database.prepare(`
+      INSERT INTO events (type, title, description, start_time, end_time, location, status, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const isoToday = today.toISOString().split('T')[0]
+    const tomorrow = new Date(today.getTime() + 86400000).toISOString().split('T')[0]
+    const dayAfter = new Date(today.getTime() + 2 * 86400000).toISOString().split('T')[0]
+    const nextWeek = new Date(today.getTime() + 7 * 86400000).toISOString().split('T')[0]
+    
+    const sampleEvents = [
+      ['performance', '《雷雨》正式演出', '经典话剧雷雨正式公演第一场', `${isoToday} 19:30`, `${isoToday} 22:00`, '主剧场', 'planned', now.toISOString()],
+      ['rehearsal', '《雷雨》带妆彩排', '全剧带妆彩排，灯光音响配合', `${tomorrow} 14:00`, `${tomorrow} 18:00`, '主剧场', 'planned', now.toISOString()],
+      ['setup', '舞台装台', '搭建舞台布景、安装灯光设备', `${dayAfter} 09:00`, `${dayAfter} 18:00`, '主剧场', 'planned', now.toISOString()],
+      ['teardown', '撤场', '演出结束后拆除舞台布景', `${nextWeek} 22:00`, `${new Date(today.getTime() + 8 * 86400000).toISOString().split('T')[0]} 02:00`, '主剧场', 'planned', now.toISOString()],
+      ['rehearsal', '演员走位排练', '第一幕演员走位练习', `${isoToday} 10:00`, `${isoToday} 12:00`, '排练厅A', 'planned', now.toISOString()],
+      ['performance', '《雷雨》第二场', '经典话剧雷雨正式公演第二场', `${tomorrow} 19:30`, `${tomorrow} 22:00`, '主剧场', 'planned', now.toISOString()],
+    ]
+    
+    sampleEvents.forEach(e => insertEvent.run(...e))
   }
 }

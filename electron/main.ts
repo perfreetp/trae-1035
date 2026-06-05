@@ -368,4 +368,72 @@ function setupIpcHandlers() {
       GROUP BY category
     `).all()
   })
+
+  // Attendance (入场统计)
+  ipcMain.handle('attendance:get', (_, eventId) => {
+    return db.prepare('SELECT * FROM attendance WHERE event_id = ?').get(eventId)
+  })
+
+  ipcMain.handle('attendance:save', (_, eventId, data) => {
+    const existing = db.prepare('SELECT id FROM attendance WHERE event_id = ?').get(eventId)
+    if (existing) {
+      db.prepare(`
+        UPDATE attendance 
+        SET total_seats = @total_seats, tickets_sold = @tickets_sold, 
+            complimentary_tickets = @complimentary_tickets, people_entered = @people_entered,
+            updated_at = @updated_at
+        WHERE event_id = @event_id
+      `).run({
+        event_id: eventId,
+        ...data,
+        updated_at: new Date().toISOString()
+      })
+    } else {
+      db.prepare(`
+        INSERT INTO attendance (event_id, total_seats, tickets_sold, complimentary_tickets, people_entered, updated_at)
+        VALUES (@event_id, @total_seats, @tickets_sold, @complimentary_tickets, @people_entered, @updated_at)
+      `).run({
+        event_id: eventId,
+        ...data,
+        updated_at: new Date().toISOString()
+      })
+    }
+    return db.prepare('SELECT * FROM attendance WHERE event_id = ?').get(eventId)
+  })
+
+  // Export all data
+  ipcMain.handle('export:all', () => {
+    const events = db.prepare('SELECT * FROM events ORDER BY start_time').all()
+    const personnel = db.prepare('SELECT * FROM personnel ORDER BY name').all()
+    const leaves = db.prepare(`
+      SELECT l.*, p.name as person_name
+      FROM leaves l
+      LEFT JOIN personnel p ON l.person_id = p.id
+      ORDER BY l.start_date DESC
+    `).all()
+    const props = db.prepare('SELECT * FROM props ORDER BY name').all()
+    const costumes = db.prepare('SELECT * FROM costumes ORDER BY name').all()
+    const tickets = db.prepare('SELECT t.*, e.title as event_title FROM tickets t LEFT JOIN events e ON t.event_id = e.id ORDER BY t.created_at DESC').all()
+    const attendance = db.prepare('SELECT a.*, e.title as event_title FROM attendance a LEFT JOIN events e ON a.event_id = e.id').all()
+    const checklists = db.prepare('SELECT c.*, e.title as event_title FROM checklists c LEFT JOIN events e ON c.event_id = e.id ORDER BY e.title, c.category, c.order_index').all()
+    const todos = db.prepare('SELECT * FROM todos ORDER BY due_date, priority DESC').all()
+    const logs = db.prepare('SELECT * FROM logs ORDER BY created_at DESC').all()
+    const incidents = db.prepare('SELECT * FROM incidents ORDER BY occurred_at DESC').all()
+    const expenses = db.prepare('SELECT * FROM expenses ORDER BY date DESC').all()
+
+    return {
+      events,
+      personnel,
+      leaves,
+      props,
+      costumes,
+      tickets,
+      attendance,
+      checklists,
+      todos,
+      logs,
+      incidents,
+      expenses
+    }
+  })
 }

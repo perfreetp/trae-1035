@@ -64,6 +64,13 @@ const api = {
     list: () => ipcRenderer.invoke('expenses:list'),
     create: (expense: any) => ipcRenderer.invoke('expenses:create', expense),
     summary: () => ipcRenderer.invoke('expenses:summary')
+  },
+  attendance: {
+    get: (eventId: number) => ipcRenderer.invoke('attendance:get', eventId),
+    save: (eventId: number, data: any) => ipcRenderer.invoke('attendance:save', eventId, data)
+  },
+  export: {
+    all: () => ipcRenderer.invoke('export:all')
   }
 }
 

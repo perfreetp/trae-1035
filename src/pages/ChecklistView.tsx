@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Button, Card, Table, Modal, Form, Input, Select, DatePicker, Checkbox, Tag, Tabs, List, message, Space, Divider } from 'antd'
+import { Button, Card, Row, Col, Modal, Form, Input, Select, DatePicker, Checkbox, Tag, Tabs, List, message, Space } from 'antd'
 import { PlusOutlined, ClockCircleOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 
@@ -145,9 +145,9 @@ function ChecklistView() {
     loadTodos()
   }
 
-  const categories = [...new Set(checklist.map(i => i.category))]
-  const completedCount = checklist.filter(i => i.checked).length
-  const totalCount = checklist.length
+  const categories = checklist && checklist.length > 0 ? [...new Set(checklist.map(i => i.category))] : []
+  const completedCount = checklist ? checklist.filter(i => i.checked).length : 0
+  const totalCount = checklist ? checklist.length : 0
 
   const priorityMap: Record<string, { label: string; className: string }> = {
     high: { label: '高', className: 'priority-high' },
