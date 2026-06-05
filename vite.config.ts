@@ -3,7 +3,15 @@ import react from '@vitejs/plugin-react'
 import path from 'path'
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    {
+      name: 'electron-main-watcher',
+      closeBundle() {
+        // 构建完成后由 electron-builder 处理
+      }
+    }
+  ],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src')

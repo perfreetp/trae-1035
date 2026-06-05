@@ -6,8 +6,8 @@
   "author": "Theater Management",
   "license": "MIT",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build && electron-builder",
+    "dev": "node scripts/dev-runner.js",
+    "build": "tsc && vite build && tsc --project scripts/tsconfig.electron.json && electron-builder",
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "typecheck": "tsc --noEmit"

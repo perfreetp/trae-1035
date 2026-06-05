@@ -49,6 +49,10 @@ function TicketsView() {
   const [ticketForm] = Form.useForm()
   const [attendanceForm] = Form.useForm()
 
+  const [formTicketsSold, setFormTicketsSold] = useState<number>(0)
+  const [formComplimentary, setFormComplimentary] = useState<number>(0)
+  const [formPeopleEntered, setFormPeopleEntered] = useState<number>(0)
+
   const loadEvents = async () => {
     try {
       const data = await window.api.events.list({
@@ -86,16 +90,20 @@ function TicketsView() {
       const data = await window.api.attendance.get(selectedEvent)
       setAttendance(data || null)
       if (data) {
-        attendanceForm.setFieldsValue({
-          total_seats: data.total_seats,
-          tickets_sold: data.tickets_sold,
-          complimentary_tickets: data.complimentary_tickets,
-          people_entered: data.people_entered
-        })
+        setFormTicketsSold(data.tickets_sold || 0)
+        setFormComplimentary(data.complimentary_tickets || 0)
+        setFormPeopleEntered(data.people_entered || 0)
+      } else {
+        setFormTicketsSold(0)
+        setFormComplimentary(0)
+        setFormPeopleEntered(0)
       }
     } catch (err) {
       console.error('加载入场统计失败:', err)
       setAttendance(null)
+      setFormTicketsSold(0)
+      setFormComplimentary(0)
+      setFormPeopleEntered(0)
     }
   }
 
@@ -150,6 +158,24 @@ function TicketsView() {
     }
   }
 
+  const openAttendanceModal = () => {
+    if (!selectedEvent) return
+    const ts = attendance?.tickets_sold || 0
+    const ct = attendance?.complimentary_tickets || 0
+    const pe = attendance?.people_entered || 0
+    
+    attendanceForm.setFieldsValue({
+      total_seats: attendance?.total_seats || 0,
+      tickets_sold: ts,
+      complimentary_tickets: ct,
+      people_entered: pe
+    })
+    setFormTicketsSold(ts)
+    setFormComplimentary(ct)
+    setFormPeopleEntered(pe)
+    setAttendanceModalOpen(true)
+  }
+
   const columns = [
     {
       title: '时间',
@@ -197,10 +223,17 @@ function TicketsView() {
     avgPrice = totalRevenue / paidTickets
   }
 
-  const totalSeats = attendance?.total_seats || 0
+  const ticketsSold = attendance?.tickets_sold || 0
+  const compTickets = attendance?.complimentary_tickets || 0
   const peopleEntered = attendance?.people_entered || 0
-  const attendanceRate = totalSeats > 0 ? (peopleEntered / totalSeats) * 100 : 0
-  const notEntered = Math.max(0, totalSeats - peopleEntered)
+  
+  const totalIssued = ticketsSold + compTickets
+  const notEntered = Math.max(0, totalIssued - peopleEntered)
+  const attendanceRate = totalIssued > 0 ? (peopleEntered / totalIssued) * 100 : 0
+
+  const formTotalIssued = formTicketsSold + formComplimentary
+  const formNotEntered = Math.max(0, formTotalIssued - formPeopleEntered)
+  const formAttendanceRate = formTotalIssued > 0 ? (formPeopleEntered / formTotalIssued) * 100 : 0
 
   return (
     <div>
@@ -222,15 +255,7 @@ function TicketsView() {
           </Select>
           <Button
             icon={<TeamOutlined />}
-            onClick={() => {
-              attendanceForm.setFieldsValue({
-                total_seats: attendance?.total_seats || 0,
-                tickets_sold: attendance?.tickets_sold || 0,
-                complimentary_tickets: attendance?.complimentary_tickets || 0,
-                people_entered: attendance?.people_entered || 0
-              })
-              setAttendanceModalOpen(true)
-            }}
+            onClick={openAttendanceModal}
             disabled={!selectedEvent}
           >
             入场统计
@@ -320,8 +345,8 @@ function TicketsView() {
         <Row gutter={16}>
           <Col span={6}>
             <div style={{ textAlign: 'center', padding: 16, background: '#e6f7ff', borderRadius: 8 }}>
-              <div style={{ fontSize: 14, color: '#8c8c8c' }}>总座位数</div>
-              <div style={{ fontSize: 28, fontWeight: 700, margin: '8px 0', color: '#1890ff' }}>{totalSeats}</div>
+              <div style={{ fontSize: 14, color: '#8c8c8c' }}>已发票数（售出+赠票）</div>
+              <div style={{ fontSize: 28, fontWeight: 700, margin: '8px 0', color: '#1890ff' }}>{totalIssued}</div>
             </div>
           </Col>
           <Col span={6}>
@@ -338,13 +363,16 @@ function TicketsView() {
           </Col>
           <Col span={6}>
             <div style={{ textAlign: 'center', padding: 16, background: '#f9f0ff', borderRadius: 8 }}>
-              <div style={{ fontSize: 14, color: '#8c8c8c' }}>座位使用率</div>
+              <div style={{ fontSize: 14, color: '#8c8c8c' }}>入场率</div>
               <div style={{ fontSize: 28, fontWeight: 700, margin: '8px 0', color: '#722ed1' }}>
-                {totalSeats > 0 ? ((peopleEntered / totalSeats) * 100).toFixed(1) : 0}%
+                {attendanceRate.toFixed(1)}%
               </div>
             </div>
           </Col>
         </Row>
+        <div style={{ marginTop: 12, textAlign: 'center', color: '#8c8c8c', fontSize: 13 }}>
+          计算口径：入场率 = 已入场人数 ÷（售出票 + 赠票）× 100%；未入场 =（售出票 + 赠票）- 已入场人数
+        </div>
       </Card>
 
       <Card title="票种统计" style={{ marginBottom: 20 }}>
@@ -427,25 +455,80 @@ function TicketsView() {
         footer={null}
         width={500}
       >
-        <Form form={attendanceForm} layout="vertical" onFinish={handleAttendanceSubmit}>
-          <Form.Item name="total_seats" label="总座位数" initialValue={0}>
-            <InputNumber min={0} style={{ width: '100%' }} placeholder="剧场总座位数" />
+        <Form 
+          form={attendanceForm} 
+          layout="vertical" 
+          onFinish={handleAttendanceSubmit}
+          onValuesChange={(changedValues) => {
+            if (changedValues.tickets_sold !== undefined) {
+              setFormTicketsSold(Number(changedValues.tickets_sold) || 0)
+            }
+            if (changedValues.complimentary_tickets !== undefined) {
+              setFormComplimentary(Number(changedValues.complimentary_tickets) || 0)
+            }
+            if (changedValues.people_entered !== undefined) {
+              setFormPeopleEntered(Number(changedValues.people_entered) || 0)
+            }
+          }}
+        >
+          <Form.Item name="total_seats" label="总座位数（参考）" initialValue={0}>
+            <InputNumber min={0} style={{ width: '100%' }} placeholder="剧场总座位数（用于参考）" />
           </Form.Item>
-          <Form.Item name="tickets_sold" label="售出票数（含赠票）" initialValue={0}>
-            <InputNumber min={0} style={{ width: '100%' }} placeholder="总共售出（含赠票）的票数" />
+          <Divider style={{ margin: '8px 0' }} />
+          <Form.Item name="tickets_sold" label="售出票数（不含赠票）" initialValue={0}>
+            <InputNumber 
+              min={0} 
+              style={{ width: '100%' }} 
+              placeholder="实际售卖的票数"
+              onChange={(val) => setFormTicketsSold(Number(val) || 0)}
+            />
           </Form.Item>
-          <Form.Item name="complimentary_tickets" label="其中赠票数" initialValue={0}>
-            <InputNumber min={0} style={{ width: '100%' }} placeholder="赠票的数量" />
+          <Form.Item name="complimentary_tickets" label="赠票数" initialValue={0}>
+            <InputNumber 
+              min={0} 
+              style={{ width: '100%' }} 
+              placeholder="免费赠送的票数"
+              onChange={(val) => setFormComplimentary(Number(val) || 0)}
+            />
           </Form.Item>
-          <Divider />
           <Form.Item name="people_entered" label="实际入场人数" initialValue={0}>
-            <InputNumber min={0} style={{ width: '100%' }} placeholder="实际检票入场的观众人数" />
+            <InputNumber 
+              min={0} 
+              style={{ width: '100%' }} 
+              placeholder="实际检票入场的观众人数"
+              onChange={(val) => setFormPeopleEntered(Number(val) || 0)}
+            />
           </Form.Item>
-          <div style={{ padding: 12, background: '#f5f5f5', borderRadius: 4, marginBottom: 16 }}>
-            <div style={{ fontSize: 13, color: '#8c8c8c', marginBottom: 4 }}>实时计算：</div>
-            <div>
-              入场率：<strong>{totalSeats > 0 ? ((peopleEntered / totalSeats) * 100).toFixed(1) : 0}%</strong>
-              ，未入场：<strong>{notEntered}</strong> 人
+          <div style={{ padding: 16, background: '#f5f5f5', borderRadius: 8, marginBottom: 16 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: '#262626' }}>实时计算结果</div>
+            <Row gutter={16}>
+              <Col span={12}>
+                <div>
+                  <span style={{ color: '#8c8c8c' }}>已发票数：</span>
+                  <strong style={{ color: '#1890ff', fontSize: 16 }}>{formTotalIssued}</strong>
+                  <span style={{ color: '#8c8c8c', fontSize: 12 }}>（售出{formTicketsSold} + 赠票{formComplimentary}）</span>
+                </div>
+              </Col>
+              <Col span={12}>
+                <div>
+                  <span style={{ color: '#8c8c8c' }}>未入场：</span>
+                  <strong style={{ color: '#fa8c16', fontSize: 16 }}>{formNotEntered}</strong>
+                  <span style={{ color: '#8c8c8c', fontSize: 12 }}>人</span>
+                </div>
+              </Col>
+            </Row>
+            <Divider style={{ margin: '12px 0' }} />
+            <div style={{ textAlign: 'center' }}>
+              <span style={{ color: '#8c8c8c' }}>入场率：</span>
+              <strong style={{ 
+                fontSize: 24, 
+                color: formAttendanceRate >= 80 ? '#52c41a' : formAttendanceRate >= 50 ? '#faad14' : '#ff4d4f' 
+              }}>
+                {formAttendanceRate.toFixed(1)}%
+              </strong>
+            </div>
+            <div style={{ fontSize: 12, color: '#8c8c8c', textAlign: 'center', marginTop: 8 }}>
+              公式：入场率 = 已入场 {formPeopleEntered} ÷ 已发 {formTotalIssued} × 100%
             </div>
           </div>
           <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
